@@ -1,3 +1,4 @@
+import json
 import requests
 from datetime import datetime
 import pandas as pd
@@ -17,9 +18,10 @@ URL = {
 }
 
 def tipo(s): return re.sub(r'\d.*', '', s)
+def fecha(s) : return re.sub("[^0-9]", "",s)
 
 class Cammesa:
-    def __init__(self, username, psw):
+    def __init__(self, username:str, psw:str):
         self.username = username
         self.psw = psw
 
@@ -28,6 +30,9 @@ class Cammesa:
         self.refresh_token = None
 
     def login(self):
+        """
+        Logea a la api de Cammesa con el usuario y contraseña pasados en la creación del objeto
+        """
         if not self.logged:
             login_data = {"username":self.username, "password":self.psw, "client_secret":CLIENT_SECRET, "grant_type":"password", "client_id":"cds"}
             login_request = requests.post(url = URL["LOGIN"], data=login_data)
@@ -43,6 +48,9 @@ class Cammesa:
             return 409
         
     def logout(self):
+        """
+        Logout de la api de Cammesa con el usuario y contraseña pasados en la creación del objeto
+        """
         if self.logged:
             logout_data = {"client_secret":CLIENT_SECRET, "client_id":"cds", "refresh_token":self.refresh_token}
             logout_request = requests.post(url = URL["LOGOUT"], data=logout_data)
@@ -56,7 +64,10 @@ class Cammesa:
         else:
             return 409
     
-    def getdoc(self, date_from, date_to, nemo):
+    def getdoc(self, date_from:datetime, date_to:datetime, nemo:str)->json:
+        """
+        Devuelve los documentos de un NEMO en unrango de fechas
+        """
         header = {"Authorization":"Bearer " + self.acces_token}
 
         doc_params = {"fechadesde":date_from.isoformat(), "fechahasta":date_to.isoformat(),"nemo":nemo}
@@ -66,8 +77,12 @@ class Cammesa:
 
         return doc_request.json(), doc_request.status_code
         
-    def getfile(self, docid, attchid, nemo, download = False, path="./"):
-        
+    def getfile(self, docid:str, attchid:str, nemo:str, download:bool = False, path="./"):
+        """
+        Devuelve el archivo asociado a un NEMO, docId y attachmentId. \n
+        Para descargar el archivo en el directorio actual download = True. \n
+        Si download = False devuelve un objeto del tipo File.
+        """
         header = {"Authorization":"Bearer " + self.acces_token}
         file_params = {"docId":docid, "attachmentId": attchid, "nemo":nemo}
         file_request = requests.get(url=URL["FILE"], headers=header, params=file_params, timeout=60)
@@ -81,8 +96,10 @@ class Cammesa:
     
         return response
     
-    def lastdocdate(self, nemo):
-
+    def lastdocdate(self, nemo:str):
+        """
+        Devuelve la fecha del último documento de un NEMO 
+        """
         header = {"Authorization":"Bearer " + self.acces_token}
         date_params = {"nemo":nemo}
         date_request = requests.get(url=URL["LAST_DOC"], headers=header, params=date_params, timeout=60)
@@ -91,7 +108,10 @@ class Cammesa:
 
         return date_request.json()
         
-    def lastdocbyfile(self, date_from, date_to, nemo, df=False):
+    def lastdocbyfile(self, date_from:datetime, date_to:datetime, nemo:str, df:bool=False)->dict|pd.DataFrame:
+        """
+        Devuelve una tabla con el id de la ultima actualización de cada archivo en un rango de fechas
+        """
         docs, code = self.getdoc(date_from, date_to, nemo)
         if code != 200: return "ERROR", code
 
@@ -104,6 +124,7 @@ class Cammesa:
         
         docs["adjunto"] = docs["adjunto"].apply(lambda x: x["id"])
         docs["tipo"] = docs["adjunto"].apply(tipo)
+        docs["mes"] = pd.to_datetime(docs["adjunto"].apply(fecha),format="%y%m", utc=True)
         docs = docs.groupby(["adjunto"]).max()
 
 

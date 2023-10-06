@@ -1,7 +1,9 @@
 from zipfile import ZipFile
 from io import BytesIO
-import magic
-import re
+from tempfile import NamedTemporaryFile
+import pandas as pd
+import pyodbc, magic, re, warnings
+
 
 class File:
     def __new__(cls, file:bytes, name:str="file", *args, **kwargs):
@@ -79,3 +81,33 @@ class Mdb(File):
 
     def __init__(self, file:bytes, name:str="access", read:bool=True, *args, **kwargs):
         super().__init__(file, name, *args, **kwargs)
+        if read: self.read()
+
+    def __getitem__(self,table:str)->pd.DataFrame:
+        if self._File__readed: return self.mdb[table]
+        else: raise FileNotFoundError("The file was not readed. Use the read() method first")
+
+    def read(self):
+        self._File__readed = True
+        
+        with NamedTemporaryFile(suffix=".mdb", dir="./temp", delete_on_close=False, delete=True) as temp:
+            temp.write(self._File__file_content)
+            temp.close()
+            
+            conn = pyodbc.connect(r'Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=' + temp.name)
+            cursor = conn.cursor()
+
+            self.tables = list(map(lambda x: x.table_name ,cursor.tables()))
+
+            self.mdb = {}
+            
+            for table in self.tables: 
+                try: 
+                    with warnings.catch_warnings():
+                        warnings.simplefilter('ignore', UserWarning)
+                        self.mdb[table] = pd.read_sql_query("SELECT * FROM " + table, conn)
+                except pd.errors.DatabaseError as e:
+                    self.tables.remove(table)
+
+            cursor.close()
+            conn.close()
